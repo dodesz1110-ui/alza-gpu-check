@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="300">
+<title>Alza GPU Watch</title>
+<style>
+body{margin:0;background:#0d1015;color:#f1f3f5;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:900px;margin:auto;padding:20px}
+h1{margin:0 0 5px;font-size:28px}.sub{color:#9aa3ad;margin-bottom:18px}
+.status{background:#171c23;border:1px solid #29313c;border-radius:12px;padding:12px;margin-bottom:14px}
+.card{background:#171c23;border:1px solid #2a333f;border-radius:14px;padding:16px;margin:10px 0}
+.badge{display:inline-block;background:#252d38;border-radius:999px;padding:5px 9px;font-size:13px;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;gap:15px}.name{font-size:18px;font-weight:700}.price{font-size:19px;font-weight:800;white-space:nowrap}
+a{color:#78b7ff}.btn{display:inline-block;margin-top:12px;background:#26313f;padding:9px 12px;border-radius:9px;text-decoration:none}
+.err{color:#ff9b9b}
+</style>
+</head>
+<body>
+<main>
+<h1>🛒 Alza GPU Watch</h1>
+<div class="sub">RTX 5080 + RTX 5070 Ti · bontott / felbontott</div>
+<div id="status" class="status">Betöltés…</div>
+<div id="list"></div>
+</main>
+<script>
+async function load(){
+  try{
+    const r=await fetch("data.json?x="+Date.now(),{cache:"no-store"});
+    const d=await r.json();
+    document.getElementById("status").innerHTML =
+      "Utolsó ellenőrzés: <b>"+new Date(d.last_check).toLocaleString("hu-HU")+"</b>"+
+      (d.error?'<div class="err">Hiba: '+d.error+"</div>":"");
+    const list=document.getElementById("list");
+    if(!d.products.length){list.innerHTML="<p>Nincs jelenleg talált bontott/felbontott kártya.</p>";return}
+    list.innerHTML=d.products.map(p=>`
+      <article class="card">
+        <div class="badge">${p.category}</div>
+        <div class="row">
+          <div class="name">${escapeHtml(p.name)}</div>
+          <div class="price">${p.price?new Intl.NumberFormat("hu-HU").format(p.price)+" Ft":"—"}</div>
+        </div>
+        <div class="sub">Készlet: ${p.stock? p.stock+" db":"nincs megadva"}</div>
+        <a class="btn" href="${p.url}" target="_blank" rel="noopener">Megnyitás Alzán ↗</a>
+      </article>`).join("");
+  }catch(e){document.getElementById("status").textContent="Nem sikerült betölteni az adatokat."}
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+load();
+setInterval(load,60000);
+</script>
+</body>
+</html>

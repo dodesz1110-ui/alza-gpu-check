@@ -1,0 +1,65 @@
+name: Alza GPU Watch
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 5 percenként; a GitHub által támogatott legrövidebb ütemezés
+    - cron: "3/5 * * * *"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  issues: write
+
+concurrency:
+  group: alza-gpu-watch
+  cancel-in-progress: true
+
+jobs:
+  watch-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Check Alza
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python monitor.py
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ./site
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data.json
+          if git diff --cached --quiet; then
+            echo "Nincs adatváltozás."
+          else
+            git commit -m "Update GPU watch data"
+            git push
+          fi
