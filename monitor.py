@@ -42,28 +42,19 @@ def fetch_page(n):
 def parse(md):
     found={}
     decoded=unquote(html.unescape(md)).replace("\\/", "/")
-    # A keresők gyakran átirányító URL mögé rejtik a céloldalt.
-    # Először minden olyan URL-részletet kinyerünk, amely Alzára mutat.
-    candidates=[]
-    for m in re.finditer(r'(?:https?://)?(?:www\\.|m\\.)?alza\\.hu[^"\\'<>\\s&]+', decoded, re.I):
-        u=unquote(html.unescape(m.group(0))).rstrip(").,;")
-        if not u.lower().startswith("http"):
-            u="https://"+u
-        candidates.append((m.start(),m.end(),u))
-
-    for pos1,pos2,url in candidates:
+    for m in re.finditer(r"(?:https?://)?(?:www\\.|m\\.)?alza\\.hu[^\\"'<>\\s&]+", decoded, re.I):
+        url=unquote(html.unescape(m.group(0))).rstrip(").,;")
+        if not url.lower().startswith("http"):
+            url="https://"+url
         if not re.search(r"/d\\d+\\.htm",url,re.I):
             continue
-        ctx=clean(re.sub(r"<[^>]+>"," ",decoded[max(0,pos1-5000):min(len(decoded),pos2+5000)]))
+        ctx=clean(re.sub(r"<[^>]+>"," ",decoded[max(0,m.start()-5000):min(len(decoded),m.end()+5000)]))
         low=ctx.lower()
         target=next((x for x in TARGETS if x in low),None)
         if not target:
             continue
         name_m=re.search(r"([^|\\n]{0,220}RTX\\s*(?:5080|5070\\s*Ti)[^|\\n]{0,220})",ctx,re.I)
-        name=clean(name_m.group(1)) if name_m else ""
-        if not name:
-            # A kereső találati címét is megpróbáljuk az URL környezetéből.
-            name="RTX 5070 Ti" if "5070 ti" in target else "RTX 5080"
+        name=clean(name_m.group(1)) if name_m else ("RTX 5070 Ti" if "5070 ti" in target else "RTX 5080")
         pm=re.findall(r"(\\d{1,3}(?:[ .]\\d{3})+|\\d{5,6})\\s*Ft",ctx,re.I)
         nums=[int(re.sub(r"\\D","",x)) for x in pm if 100000<=int(re.sub(r"\\D","",x))<=2000000]
         price=min(nums) if nums else None
