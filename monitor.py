@@ -1,29 +1,29 @@
+import json
+import os
 import re
 import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urljoin
 
-from playwright.sync_api import sync_playwright
 import requests
+from playwright.sync_api import sync_playwright
 
 
 DATA_FILE = "site/data.json"
 
 ALZA_URL = "https://m.alza.hu/gaming/videokartyak/vasar-hasznalt-termekek/u38842862.htm"
 
-TARGETS = ("rtx 5080", "rtx 5070 ti")
-CONDITION_WORDS = (
+GPU_NAMES = (
+    "rtx 5080",
+    "rtx 5070 ti",
+)
+
+CONDITIONS = (
     "felbontott",
     "bontott",
     "használt",
     "újszerű",
 )
-
-
-def make_id(url, name):
-    return hashlib.sha256(
-        (url + "|" + name).encode("utf-8")
-    ).hexdigest()[:20]
 
 
 def load_data():
@@ -33,7 +33,7 @@ def load_data():
             "seen": [],
             "initialized": False,
             "last_check": None,
-            "error": None
+            "error": None,
         }
 
     try:
@@ -45,7 +45,7 @@ def load_data():
             "seen": [],
             "initialized": False,
             "last_check": None,
-            "error": None
+            "error": None,
         }
 
 
@@ -53,16 +53,17 @@ def save_data(data):
     os.makedirs("site", exist_ok=True)
 
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            data,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def product_id(url, name):
+    return hashlib.sha256(
+        (url + "|" + name).encode("utf-8")
+    ).hexdigest()[:20]
 
 
 def get_price(text):
-    matches = re.findall(r"([\d .]+)\s*Ft", text or "")
+    matches = re.findall(r"([\d .]+)\s*Ft", text)
 
     prices = []
 
@@ -72,10 +73,7 @@ def get_price(text):
         if number >= 100000:
             prices.append(number)
 
-    if not prices:
-        return None
-
-    return min(prices)
+    return min(prices) if prices else None
 
 
 def get_condition(text):
@@ -103,11 +101,10 @@ def notify_github(product):
     if not token or not repo:
         return
 
-    price = (
-        f'{product["price"]:,}'.replace(",", " ") + " Ft"
-        if product.get("price")
-        else "Nincs ár"
-    )
+    if product.get("price"):
+        price = f'{product["price"]:,}'.replace(",", " ") + " Ft"
+    else:
+        price = "Nincs ár"
 
     body = f"""## 🟢 Új Alza videókártya
 
@@ -128,33 +125,30 @@ def notify_github(product):
         f"https://api.github.com/repos/{repo}/issues",
         headers={
             "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json"
+            "Accept": "application/vnd.github+json",
         },
         json={
             "title": (
                 f'🟢 Új Alza {product["condition"]} '
                 f'{product["category"]}: {product["name"]}'
             ),
-            "body": body
+            "body": body,
         },
-        timeout=20
+        timeout=20,
     )
 
 
 def scan_alza():
-
     products = []
 
     with sync_playwright() as p:
 
-        browser = p.chromium.launch(
-            headless=True
-        )
+        browser = p.chromium.launch(headless=True)
 
         page = browser.new_page(
             viewport={
                 "width": 1440,
-                "height": 1000
+                "height": 1000,
             },
             locale="hu-HU",
             user_agent=(
@@ -162,18 +156,17 @@ def scan_alza():
                 "AppleWebKit/537.36 "
                 "(KHTML, like Gecko) "
                 "Chrome/140.0.0.0 Safari/537.36"
-            )
+            ),
         )
 
         page.goto(
             ALZA_URL,
             wait_until="domcontentloaded",
-            timeout=60000
+            timeout=60000,
         )
 
         page.wait_for_timeout(7000)
 
-        # Az oldal teljes betöltéséhez görgetünk.
         for _ in range(10):
             page.mouse.wheel(0, 1200)
             page.wait_for_timeout(700)
@@ -183,7 +176,6 @@ def scan_alza():
         for i in range(links.count()):
 
             try:
-
                 link = links.nth(i)
 
                 href = link.get_attribute("href")
@@ -193,7 +185,7 @@ def scan_alza():
 
                 href = urljoin(
                     "https://www.alza.hu",
-                    href
+                    href,
                 )
 
                 if "alza.hu" not in href:
@@ -205,11 +197,9 @@ def scan_alza():
                 node = link
                 best_text = ""
 
-                # Felmegyünk a termékkártya szülő elemei között.
                 for _ in range(10):
 
                     try:
-
                         node = node.locator("..")
 
                         text = " ".join(
@@ -222,13 +212,13 @@ def scan_alza():
                         low = text.lower()
 
                         has_gpu = any(
-                            target in low
-                            for target in TARGETS
+                            gpu in low
+                            for gpu in GPU_NAMES
                         )
 
                         has_condition = any(
                             condition in low
-                            for condition in CONDITION_WORDS
+                            for condition in CONDITIONS
                         )
 
                         if has_gpu and has_condition:
@@ -240,40 +230,33 @@ def scan_alza():
                 text = best_text
                 low = text.lower()
 
-                # Csak RTX 5080 vagy RTX 5070 Ti.
                 if not any(
-                    target in low
-                    for target in TARGETS
+                    gpu in low
+                    for gpu in GPU_NAMES
                 ):
                     continue
 
-                # Bontott / felbontott / használt / újszerű.
                 if not any(
                     condition in low
-                    for condition in CONDITION_WORDS
+                    for condition in CONDITIONS
                 ):
                     continue
-
-                # Terméknév.
-                name = ""
 
                 try:
                     name = " ".join(
                         link.inner_text().split()
                     )
                 except Exception:
-                    pass
+                    name = ""
 
                 if not name or len(name) < 5:
-
                     lines = [
-                        x.strip()
-                        for x in text.split("\n")
-                        if x.strip()
+                        line.strip()
+                        for line in text.split("\n")
+                        if line.strip()
                     ]
 
                     for line in lines:
-
                         line_low = line.lower()
 
                         if (
@@ -293,15 +276,15 @@ def scan_alza():
                 )
 
                 price = get_price(text)
+                condition = get_condition(text)
 
                 stock = None
 
                 stock_match = re.search(
                     r"(?:raktáron|raktárban)"
-                    r"\s*(?:>|:)?\s*"
-                    r"(\d+)\s*db",
+                    r"\s*(?:>|:)?\s*(\d+)\s*db",
                     text,
-                    re.IGNORECASE
+                    re.IGNORECASE,
                 )
 
                 if stock_match:
@@ -309,11 +292,9 @@ def scan_alza():
                         stock_match.group(1)
                     )
 
-                condition = get_condition(text)
-
-                pid = make_id(
+                pid = product_id(
                     href,
-                    name
+                    name,
                 )
 
                 products.append({
@@ -326,7 +307,7 @@ def scan_alza():
                     "url": href,
                     "checked_at": datetime.now(
                         timezone.utc
-                    ).isoformat()
+                    ).isoformat(),
                 })
 
             except Exception:
@@ -334,21 +315,17 @@ def scan_alza():
 
         browser.close()
 
-    # Duplikációk eltávolítása.
     unique = {}
 
     for product in products:
         unique[product["id"]] = product
 
-    products = list(
-        unique.values()
-    )
+    products = list(unique.values())
 
-    # Legolcsóbbtól a legdrágábbig.
     products.sort(
         key=lambda x: (
             x["price"] is None,
-            x["price"] or 0
+            x["price"] or 0,
         )
     )
 
@@ -376,7 +353,6 @@ def main():
         for product in products
     }
 
-    # Első futáskor baseline készül.
     if not data.get("initialized"):
 
         data["seen"] = sorted(
@@ -394,7 +370,6 @@ def main():
         ]
 
         for product in new_products:
-
             try:
                 notify_github(product)
             except Exception:
