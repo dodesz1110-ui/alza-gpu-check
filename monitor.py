@@ -42,7 +42,7 @@ def fetch_page(n):
 def parse(md):
     found={}
     decoded=unquote(html.unescape(md)).replace("\\/", "/")
-    for m in re.finditer(r"(?:https?://)?(?:www\\.|m\\.)?alza\\.hu[^\\"'<>\\s&]+", decoded, re.I):
+    for m in re.finditer(r"""(?:https?://)?(?:www\\.|m\\.)?alza\\.hu[^<>"'\\s&]+""", decoded, re.I):
         url=unquote(html.unescape(m.group(0))).rstrip(").,;")
         if not url.lower().startswith("http"):
             url="https://"+url
