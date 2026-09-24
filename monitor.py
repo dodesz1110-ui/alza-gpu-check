@@ -41,28 +41,50 @@ def fetch_page(n):
 
 def parse(md):
     found={}
-    decoded=unquote(html.unescape(md)).replace("\\/", "/")
-    for m in re.finditer(r"""(?:https?://)?(?:www\.|m\.)?alza\.hu[^<>"'\s&]+""", decoded, re.I):
-        url=unquote(html.unescape(m.group(0))).rstrip(").,;")
-        if not url.lower().startswith("http"):
-            url="https://"+url
-        if not re.search(r"/d\d+\.htm",url,re.I):
+    soup=html.unescape(md)
+    blocks=re.findall(r'<li[^>]*class=["'][^"']*b_algo[^"']*["'][^>]*>([\\s\\S]*?)</li>',soup,re.I)
+    for block in blocks:
+        hm=re.search(r'<h2[^>]*>\\s*<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]*?)</a>',block,re.I)
+        if not hm:
             continue
-        ctx=clean(re.sub(r"<[^>]+>"," ",decoded[max(0,m.start()-5000):min(len(decoded),m.end()+5000)]))
-        low=ctx.lower()
-        target=next((x for x in TARGETS if x in low),None)
-        if not target:
+        href=html.unescape(hm.group(1))
+        title=clean(re.sub(r"<[^>]+>"," ",html.unescape(hm.group(2))))
+        sm=re.search(r'<p[^>]*>([\\s\\S]*?)</p>',block,re.I)
+        snippet=clean(re.sub(r"<[^>]+>"," ",html.unescape(sm.group(1)))) if sm else ""
+        text=clean(title+" "+snippet)
+        low=text.lower()
+        if not any(t in low for t in TARGETS):
             continue
-        name_m=re.search(r"([^|\\n]{0,220}RTX\s*(?:5080|5070\s*Ti)[^|\\n]{0,220})",ctx,re.I)
-        name=clean(name_m.group(1)) if name_m else ("RTX 5070 Ti" if "5070 ti" in target else "RTX 5080")
-        pm=re.findall(r"(\d{1,3}(?:[ .]\d{3})+|\d{5,6})\s*Ft",ctx,re.I)
-        nums=[int(re.sub(r"\D","",x)) for x in pm if 100000<=int(re.sub(r"\D","",x))<=2000000]
-        price=min(nums) if nums else None
+        if not any(c in low for c in CONDITIONS):
+            continue
+        from urllib.parse import urlparse, parse_qs
+        from base64 import urlsafe_b64decode
+        url=href
+        try:
+            q=urlparse(url)
+            if q.netloc.lower().endswith("bing.com") and q.path.startswith("/ck/"):
+                vals=parse_qs(q.query).get("u",[])
+                if vals:
+                    raw=vals[0]
+                    if raw.startswith("a1"):
+                        raw=raw[2:]
+                    raw += "=" * (-len(raw)%4)
+                    url=urlsafe_b64decode(raw).decode("utf-8","replace")
+        except Exception:
+            pass
+        url=unquote(html.unescape(url)).replace("\\","").rstrip(").,;")
+        if not re.search(r"https?://(?:www\\.|m\\.)?alza\\.hu/(?:[^/]+/)*d\\d+\\.htm",url,re.I):
+            continue
+        name=title
+        price_m=re.search(r"(\\d{1,3}(?:[ .]\\d{3})+|\\d{5,6})\\s*Ft",text,re.I)
+        price=int(re.sub(r"\\D","",price_m.group(1))) if price_m else None
         condition=next((x.capitalize() for x in CONDITIONS if x in low),"Felbontott")
-        sm=re.search(r"(?:raktáron|raktárban)[^\d]{0,40}(\d+)\s*db",ctx,re.I)
-        stock=int(sm.group(1)) if sm else None
-        key=url.split("?")[0].split("#")[0]
-        found[key]={"category":"RTX 5070 Ti" if "5070 ti" in target else "RTX 5080","condition":condition,"name":name,"price":price,"stock":stock,"url":key,"checked_at":datetime.now(timezone.utc).isoformat()}
+        found[url.split("?")[0].split("#")[0]]={
+            "category":"RTX 5070 Ti" if "5070 ti" in low else "RTX 5080",
+            "condition":condition,"name":name,"price":price,"stock":None,
+            "url":url.split("?")[0].split("#")[0],
+            "checked_at":datetime.now(timezone.utc).isoformat()
+        }
     return list(found.values())
 
 def scan():
