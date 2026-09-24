@@ -3,7 +3,6 @@ name: Alza GPU Watch
 on:
   workflow_dispatch:
   schedule:
-    # 5 percenként; a GitHub által támogatott legrövidebb ütemezés
     - cron: "3/5 * * * *"
 
 permissions:
@@ -29,8 +28,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Dependencies
-        run: pip install requests beautifulsoup4
+      - name: Install dependencies
+        run: |
+          pip install playwright requests
+          playwright install chromium --with-deps
 
       - name: Check Alza
         env:
