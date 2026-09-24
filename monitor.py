@@ -39,14 +39,14 @@ def fetch_page(n):
 def parse(md):
     found={}
     soup=html.unescape(md)
-    blocks=re.findall(r'<li[^>]*class=["'][^"']*b_algo[^"']*["'][^>]*>([\\s\\S]*?)</li>',soup,re.I)
+    blocks=re.findall(r"""<li[^>]*class=["'][^"']*b_algo[^"']*["'][^>]*>([\\s\\S]*?)</li>""", soup, re.I)
     for block in blocks:
-        hm=re.search(r'<h2[^>]*>\\s*<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]*?)</a>',block,re.I)
+        hm=re.search(r"""<h2[^>]*>\\s*<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]*?)</a>""", block, re.I)
         if not hm:
             continue
         href=html.unescape(hm.group(1))
         title=clean(re.sub(r"<[^>]+>"," ",html.unescape(hm.group(2))))
-        sm=re.search(r'<p[^>]*>([\\s\\S]*?)</p>',block,re.I)
+        sm=re.search(r"""<p[^>]*>([\\s\\S]*?)</p>""", block, re.I)
         snippet=clean(re.sub(r"<[^>]+>"," ",html.unescape(sm.group(1)))) if sm else ""
         text=clean(title+" "+snippet)
         low=text.lower()
