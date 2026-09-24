@@ -45,9 +45,9 @@ def parse(md):
     for m in re.finditer(r"<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",decoded,re.I|re.S):
         url=html.unescape(m.group(1)).replace("&amp;","&")
         label=clean(re.sub(r"<[^>]+>"," ",m.group(2)))
-        if not re.match(r"https?://(?:www\\.|m\\.)?alza\\.hu/",url,re.I):
+        if not re.match(r"https?://(?:www\.|m\.)?alza\.hu/",url,re.I):
             continue
-        if not re.search(r"/d\\d+\\.htm",url,re.I):
+        if not re.search(r"/d\d+\.htm",url,re.I):
             continue
         ctx=clean(re.sub(r"<[^>]+>"," ",decoded[max(0,m.start()-3500):min(len(decoded),m.end()+3500)]))
         low=(label+" "+ctx).lower()
