@@ -30,43 +30,44 @@ def fetch_page(n):
 
 def parse(md):
     found = {}
-    # A Jina által visszaadott Alza-oldalon a termékek markdown linkekként
-    # jelennek meg. Az outlet kategória miatt nem kell külön feltételként
-    # a "Felbontott" szöveget ugyanabban a link-környezetben megtalálni.
-    link_re = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+|/[^)\s]+)\)", re.I)
-    for m in link_re.finditer(md):
-        label = clean(m.group(1))
+
+    # Jina néha nem markdown-linkként, hanem sima URL-ként adja vissza
+    # az Alza terméklinkeket, ezért mindkét formátumot felismerjük.
+    links = []
+    md_links = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+|/[^)\s]+)\)", re.I)
+    for m in md_links.finditer(md):
         url = m.group(2)
         if url.startswith("/"):
             url = "https://www.alza.hu" + url
-        if "alza.hu" not in url.lower():
+        links.append((m.start(), m.end(), clean(m.group(1)), url))
+
+    raw_links = re.compile(r"https?://[^\s)<>]+\.htm(?:\?[^\s)<>]*)?", re.I)
+    for m in raw_links.finditer(md):
+        url = m.group(0).rstrip(".,")
+        if "alza.hu" in url.lower():
+            links.append((m.start(), m.end(), "", url))
+
+    for pos1, pos2, label, url in links:
+        if "alza.hu" not in url.lower() or not re.search(r"\.htm", url, re.I):
             continue
 
-        # A terméknév gyakran közvetlenül a linkben van.
-        target = next((x for x in TARGETS if x in label.lower()), None)
-
-        # Ha a link szövege nem tartalmazza, nézzük meg a közeli markdown-részt.
-        ctx = clean(md[max(0, m.start()-3500):min(len(md), m.end()+3500)])
+        ctx = clean(md[max(0, pos1-5000):min(len(md), pos2+5000)])
         low = (label + " " + ctx).lower()
-        if not target:
-            target = next((x for x in TARGETS if x in low), None)
+        target = next((x for x in TARGETS if x in low), None)
         if not target:
             continue
 
-        # Ne vegyünk fel navigációs/keresési linkeket; valódi termékoldal
-        # esetén jellemzően d12345678.htm szerepel az URL-ben.
-        if not re.search(r"\.htm", url, re.I):
+        # Kerüljük a kategória/szűrőoldalakat: a termékoldalak tipikusan
+        # d12345678.htm alakúak.
+        if not re.search(r"/(?:[^/]+-)?d\d+\.htm", url, re.I):
             continue
 
         pm = re.findall(r"(\d{1,3}(?:[ .]\d{3})+|\d{5,6})\s*Ft", ctx, re.I)
         nums = []
         for p in pm:
-            try:
-                n = int(re.sub(r"\D", "", p))
-                if 100000 <= n <= 2000000:
-                    nums.append(n)
-            except Exception:
-                pass
+            n = int(re.sub(r"\D", "", p))
+            if 100000 <= n <= 2000000:
+                nums.append(n)
         price = min(nums) if nums else None
 
         sm = re.search(r"(?:raktáron|raktárban)\s*(?:>|:)?\s*(\d+)\s*db", ctx, re.I)
@@ -75,12 +76,10 @@ def parse(md):
         stock = int(sm.group(1)) if sm else None
 
         name = label
-        if "rtx" not in name.lower() or len(name) < 8:
+        if "rtx" not in name.lower():
             nm = re.search(r"([^|\n]{0,180}RTX\s*(?:5080|5070\s*Ti)[^|\n]{0,180})", ctx, re.I)
             if nm:
                 name = clean(nm.group(1))
-
-        # Ha a környezetből túl hosszú név jön, a link címkéje az elsődleges.
         if "rtx" not in name.lower():
             continue
 
