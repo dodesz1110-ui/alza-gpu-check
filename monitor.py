@@ -71,9 +71,17 @@ def direct_alza():
         return [], {"source":"direct","error":f"{type(e).__name__}: {e}"}
 
 def google_search(query):
-    r=S.get("https://www.google.com/search",params={"q":query,"hl":"hu","num":"100","filter":"0"},timeout=30)
-    r.raise_for_status()
-    return r.text
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(locale="hu-HU", user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36")
+        page.goto("https://www.google.com/search", wait_until="domcontentloaded", timeout=60000)
+        page.locator("textarea[name=q], input[name=q]").first.fill(query)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(4000)
+        links=page.locator('a[href*="alza.hu/"]').evaluate_all("(els)=>els.map(a=>({href:a.href,text:a.innerText}))")
+        browser.close()
+        return links
 
 def scan():
     direct, diag = direct_alza()
