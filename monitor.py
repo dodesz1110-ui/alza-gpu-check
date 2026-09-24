@@ -1,4 +1,5 @@
 import json, os, re, smtplib, ssl, html
+from urllib.parse import unquote
 from datetime import datetime, timezone
 from email.message import EmailMessage
 import requests
@@ -40,32 +41,36 @@ def fetch_page(n):
 
 def parse(md):
     found={}
-    decoded=html.unescape(md)
-    # Bing találati HTML-ben a valódi cél URL-ek az <a href=...> elemekben vannak.
-    for m in re.finditer(r"<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",decoded,re.I|re.S):
-        url=html.unescape(m.group(1)).replace("&amp;","&")
-        label=clean(re.sub(r"<[^>]+>"," ",m.group(2)))
-        if not re.match(r"https?://(?:www\.|m\.)?alza\.hu/",url,re.I):
+    decoded=unquote(html.unescape(md)).replace("\\/", "/")
+    # A keresők gyakran átirányító URL mögé rejtik a céloldalt.
+    # Először minden olyan URL-részletet kinyerünk, amely Alzára mutat.
+    candidates=[]
+    for m in re.finditer(r'(?:https?://)?(?:www\\.|m\\.)?alza\\.hu[^"\\'<>\\s&]+', decoded, re.I):
+        u=unquote(html.unescape(m.group(0))).rstrip(").,;")
+        if not u.lower().startswith("http"):
+            u="https://"+u
+        candidates.append((m.start(),m.end(),u))
+
+    for pos1,pos2,url in candidates:
+        if not re.search(r"/d\\d+\\.htm",url,re.I):
             continue
-        if not re.search(r"/d\d+\.htm",url,re.I):
-            continue
-        ctx=clean(re.sub(r"<[^>]+>"," ",decoded[max(0,m.start()-3500):min(len(decoded),m.end()+3500)]))
-        low=(label+" "+ctx).lower()
+        ctx=clean(re.sub(r"<[^>]+>"," ",decoded[max(0,pos1-5000):min(len(decoded),pos2+5000)]))
+        low=ctx.lower()
         target=next((x for x in TARGETS if x in low),None)
         if not target:
             continue
-        name=label
-        if "rtx" not in name.lower():
-            nm=re.search(r"([^|\\n]{0,180}RTX\\s*(?:5080|5070\\s*Ti)[^|\\n]{0,180})",ctx,re.I)
-            if nm: name=clean(nm.group(1))
-        if "rtx" not in name.lower(): continue
+        name_m=re.search(r"([^|\\n]{0,220}RTX\\s*(?:5080|5070\\s*Ti)[^|\\n]{0,220})",ctx,re.I)
+        name=clean(name_m.group(1)) if name_m else ""
+        if not name:
+            # A kereső találati címét is megpróbáljuk az URL környezetéből.
+            name="RTX 5070 Ti" if "5070 ti" in target else "RTX 5080"
         pm=re.findall(r"(\\d{1,3}(?:[ .]\\d{3})+|\\d{5,6})\\s*Ft",ctx,re.I)
         nums=[int(re.sub(r"\\D","",x)) for x in pm if 100000<=int(re.sub(r"\\D","",x))<=2000000]
         price=min(nums) if nums else None
         condition=next((x.capitalize() for x in CONDITIONS if x in low),"Felbontott")
-        sm=re.search(r"(?:raktáron|raktárban)[^\\d]{0,30}(\\d+)\\s*db",ctx,re.I)
+        sm=re.search(r"(?:raktáron|raktárban)[^\\d]{0,40}(\\d+)\\s*db",ctx,re.I)
         stock=int(sm.group(1)) if sm else None
-        key=url.split("#")[0]
+        key=url.split("?")[0].split("#")[0]
         found[key]={"category":"RTX 5070 Ti" if "5070 ti" in target else "RTX 5080","condition":condition,"name":name,"price":price,"stock":stock,"url":key,"checked_at":datetime.now(timezone.utc).isoformat()}
     return list(found.values())
 
