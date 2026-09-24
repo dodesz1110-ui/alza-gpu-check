@@ -25,96 +25,72 @@ def save_data(d):
 
 def clean(s): return re.sub(r"\s+"," ",s or "").strip()
 
-def fetch_page(n):
-    urls = [
-        "https://m.alza.hu/gaming/nvidia-rtx-5070-ti/vasar-hasznalt-termekek/u1000208444.htm",
-        "https://m.alza.hu/gaming/nvidia-geforce-rtx-5080/vasar-hasznalt-termekek/u1000208445.htm"
-    ]
-    target = urls[(n-1) % len(urls)]
+def google_search(query):
+    r = S.get("https://www.google.com/search", params={
+        "q": query, "hl": "hu", "num": "100", "filter": "0"
+    }, timeout=30)
+    r.raise_for_status()
+    return r.text
 
-    # Alza blocks GitHub Actions IPs with 403. Try free public fetch relays.
-    candidates = [
-        "https://api.allorigins.win/raw?url=" + requests.utils.quote(target, safe=""),
-        "https://corsproxy.io/?" + requests.utils.quote(target, safe=""),
-        "https://r.jina.ai/" + target,
-    ]
-    errors = []
-    for u in candidates:
-        try:
-            r = S.get(u, timeout=60, headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "text/html,text/plain,*/*"
-            })
-            r.raise_for_status()
-            text = r.text
-            low = text.lower()
-            if "alza" in low and ("rtx 5070 ti" in low or "rtx 5080" in low):
-                print("FETCH OK:", u.split("?")[0])
-                return text
-            errors.append(f"{u.split('?')[0]}: nem Alza GPU oldal ({len(text)} karakter)")
-        except Exception as e:
-            errors.append(f"{u.split('?')[0]}: {type(e).__name__}: {e}")
-    raise RuntimeError(" | ".join(errors))
-
-
-def parse(md):
-    found={}
-    soup=html.unescape(md)
-    blocks=re.findall(r"""<li[^>]*class=["'][^"']*b_algo[^"']*["'][^>]*>([\\s\\S]*?)</li>""", soup, re.I)
-    for block in blocks:
-        hm=re.search(r"""<h2[^>]*>\\s*<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]*?)</a>""", block, re.I)
-        if not hm:
+def parse_google(raw):
+    page = html.unescape(raw)
+    found = {}
+    # Google search results expose direct Alza product URLs.
+    urls = re.findall(
+        r'https?://(?:www\\.|m\\.)?alza\\.hu/[^"\\s<>]+/d\\d+\\.htm',
+        page, re.I
+    )
+    for url in urls:
+        url = unquote(url).replace("\\/","/").rstrip(").,;")
+        pos = page.lower().find(url.lower())
+        if pos < 0:
             continue
-        href=html.unescape(hm.group(1))
-        title=clean(re.sub(r"<[^>]+>"," ",html.unescape(hm.group(2))))
-        sm=re.search(r"""<p[^>]*>([\\s\\S]*?)</p>""", block, re.I)
-        snippet=clean(re.sub(r"<[^>]+>"," ",html.unescape(sm.group(1)))) if sm else ""
-        text=clean(title+" "+snippet)
-        low=text.lower()
+        block = clean(re.sub(r"<[^>]+>", " ", page[max(0,pos-1800):pos+2500]))
+        low = block.lower()
         if not any(t in low for t in TARGETS):
             continue
         if not any(c in low for c in CONDITIONS):
             continue
-        from urllib.parse import urlparse, parse_qs
-        from base64 import urlsafe_b64decode
-        url=href
-        try:
-            q=urlparse(url)
-            if q.netloc.lower().endswith("bing.com") and q.path.startswith("/ck/"):
-                vals=parse_qs(q.query).get("u",[])
-                if vals:
-                    raw=vals[0]
-                    if raw.startswith("a1"):
-                        raw=raw[2:]
-                    raw += "=" * (-len(raw)%4)
-                    url=urlsafe_b64decode(raw).decode("utf-8","replace")
-        except Exception:
-            pass
-        url=unquote(html.unescape(url)).replace("\\","").rstrip(").,;")
-        if not re.search(r"https?://(?:www\\.|m\\.)?alza\\.hu/(?:[^/]+/)*d\\d+\\.htm",url,re.I):
-            continue
-        name=title
-        price_m=re.search(r"(\\d{1,3}(?:[ .]\\d{3})+|\\d{5,6})\\s*Ft",text,re.I)
-        price=int(re.sub(r"\\D","",price_m.group(1))) if price_m else None
-        condition=next((x.capitalize() for x in CONDITIONS if x in low),"Felbontott")
-        found[url.split("?")[0].split("#")[0]]={
-            "category":"RTX 5070 Ti" if "5070 ti" in low else "RTX 5080",
-            "condition":condition,"name":name,"price":price,"stock":None,
-            "url":url.split("?")[0].split("#")[0],
-            "checked_at":datetime.now(timezone.utc).isoformat()
+        title = ""
+        tm = re.search(r"<h3[^>]*>(.*?)</h3>", page[max(0,pos-1800):pos+1000], re.I|re.S)
+        if tm:
+            title = clean(re.sub(r"<[^>]+>", " ", html.unescape(tm.group(1))))
+        if not title:
+            title = "Alza RTX találat"
+        pm = re.search(r"(\\d{1,3}(?:[ .]\\d{3})+|\\d{5,6})\\s*Ft", block, re.I)
+        price = int(re.sub(r"\\D","",pm.group(1))) if pm else None
+        condition = next((x.capitalize() for x in CONDITIONS if x in low), "Felbontott")
+        clean_url = url.split("?")[0].split("#")[0]
+        found[clean_url] = {
+            "category": "RTX 5070 Ti" if "5070 ti" in low else "RTX 5080",
+            "condition": condition, "name": title, "price": price,
+            "stock": None, "url": clean_url,
+            "checked_at": datetime.now(timezone.utc).isoformat()
         }
     return list(found.values())
 
 def scan():
-    allp={}; errors=[]; diagnostics=[]
-    for n in range(1,11):
+    queries = [
+        'site:alza.hu/gaming "RTX 5070 Ti" ("Felbontott" OR "Bontott" OR "Használt" OR "Újszerű")',
+        'site:alza.hu/gaming "RTX 5080" ("Felbontott" OR "Bontott" OR "Használt" OR "Újszerű")'
+    ]
+    allp, errors, diagnostics = {}, [], []
+    for q in queries:
         try:
-            raw=fetch_page(n); items=parse(raw); diagnostics.append({"page":n,"length":len(raw),"rtx5070ti":raw.lower().count("rtx 5070 ti"),"rtx5080":raw.lower().count("rtx 5080"),"links":len(re.findall(r"(?:https?://)?(?:www\.|m\.)?alza\.hu/[^\s)<>]+\.htm",html.unescape(raw).replace("\\/","/"),re.I))}); print(f"OLDAL {n}: {len(items)} találat, chars={len(raw)}, 5070Ti={raw.lower().count("rtx 5070 ti")}, 5080={raw.lower().count("rtx 5080")}")
-            for p in items: allp[p["url"]]=p
-        except Exception as e: errors.append(f"oldal {n}: {type(e).__name__}: {e}")
-    products=sorted(allp.values(),key=lambda p:(p["price"] is None,p["price"] or 0))
-    print("ÖSSZES TALÁLT TERMÉK:",len(products))
-    return products,errors,diagnostics
+            raw = google_search(q)
+            items = parse_google(raw)
+            diagnostics.append({
+                "query": q, "length": len(raw), "items": len(items),
+                "alza_links": len(re.findall(r"https?://(?:www\\.|m\\.)?alza\\.hu/", html.unescape(raw), re.I))
+            })
+            print(f"GOOGLE: {len(items)} Alza RTX találat, chars={len(raw)}")
+            for p in items:
+                allp[p["url"]] = p
+        except Exception as e:
+            errors.append(f"{q}: {type(e).__name__}: {e}")
+    products = sorted(allp.values(), key=lambda p:(p["price"] is None,p["price"] or 0))
+    print("ÖSSZES TALÁLT TERMÉK:", len(products))
+    return products, errors, diagnostics
 
 def send_email(items):
     password=os.getenv("GMAIL_APP_PASSWORD")
