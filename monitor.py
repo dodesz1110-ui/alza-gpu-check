@@ -72,16 +72,24 @@ def direct_alza():
 
 def google_search(query):
     from playwright.sync_api import sync_playwright
+    from urllib.parse import quote_plus
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True)
-        page=browser.new_page(locale="hu-HU", user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36")
-        page.goto("https://www.google.com/search", wait_until="domcontentloaded", timeout=60000)
-        page.locator("textarea[name=q], input[name=q]").first.fill(query)
-        page.keyboard.press("Enter")
-        page.wait_for_timeout(4000)
-        links=page.locator('a[href*="alza.hu/"]').evaluate_all("(els)=>els.map(a=>({href:a.href,text:a.innerText}))")
+        page=browser.new_page(
+            locale="hu-HU",
+            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
+        )
+        # Direct URL is more reliable in CI than filling Google's search box.
+        url="https://www.google.com/search?q="+quote_plus(query)+"&hl=hu"
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(5000)
+        raw=page.content()
+        title=page.title()
+        links=page.locator("a").evaluate_all("(els)=>els.map(a=>a.href).filter(Boolean)")
+        alza_links=[x for x in links if "alza.hu/" in x.lower()]
+        print("GOOGLE PAGE:", len(raw), "chars,", title, "Alza linkek:", len(alza_links))
         browser.close()
-        return links
+        return raw
 
 def scan():
     direct, diag = direct_alza()
