@@ -25,46 +25,47 @@ def save_data(d):
 def clean(s): return re.sub(r"\s+"," ",s or "").strip()
 
 def fetch_page(n):
-    # Az Alza blokkolja a szerveroldali közvetlen lekérést. Ezért a nyilvános
-    # keresőindexből kérjük le az aktuális Alza termékoldalakat.
     queries = [
-        'site:m.alza.hu "RTX 5070 Ti" "Felbontott" Alza',
-        'site:m.alza.hu "RTX 5080" "Felbontott" Alza',
-        'site:m.alza.hu "RTX 5070 Ti" "Újszerű" Alza',
-        'site:m.alza.hu "RTX 5080" "Újszerű" Alza',
-        'site:m.alza.hu "RTX 5070 Ti" "Használt" Alza',
-        'site:m.alza.hu "RTX 5080" "Használt" Alza'
+        'site:alza.hu "RTX 5070 Ti" "Felbontott"',
+        'site:alza.hu "RTX 5080" "Felbontott"',
+        'site:alza.hu "RTX 5070 Ti" "Újszerű"',
+        'site:alza.hu "RTX 5080" "Újszerű"',
+        'site:alza.hu "RTX 5070 Ti" "Használt"',
+        'site:alza.hu "RTX 5080" "Használt"'
     ]
     q=queries[(n-1)%len(queries)]
-    r=S.get("https://www.google.com/search",params={"q":q,"num":20,"hl":"hu"},headers={"Accept":"text/html"},timeout=60)
+    r=S.get("https://www.bing.com/search",params={"q":q,"count":50,"setlang":"hu-HU","cc":"HU"},headers={"Accept":"text/html","User-Agent":"Mozilla/5.0"},timeout=60)
     r.raise_for_status()
     return r.text
 
 def parse(md):
-    found = {}
-    # Google HTML-ból kinyerjük az Alza termékoldalakat és a körülöttük
-    # megjelenő terméknevet/árat/állapotot.
-    decoded = html.unescape(md).replace("\\/", "/")
-    for m in re.finditer(r"(?:https?://)?(?:www\\.|m\\.)?alza\\.hu/[^\\s\"<>]+", decoded, re.I):
-        url = m.group(0).rstrip(").,\\\\")
-        if not url.lower().startswith("http"):
-            url = "https://" + url
-        if not re.search(r"/d\\d+\\.htm", url, re.I):
+    found={}
+    decoded=html.unescape(md)
+    # Bing találati HTML-ben a valódi cél URL-ek az <a href=...> elemekben vannak.
+    for m in re.finditer(r'<a[^>]+href=["\\']([^"\\']+)["\\'][^>]*>(.*?)</a>',decoded,re.I|re.S):
+        url=html.unescape(m.group(1)).replace("&amp;","&")
+        label=clean(re.sub(r"<[^>]+>"," ",m.group(2)))
+        if not re.match(r"https?://(?:www\\.|m\\.)?alza\\.hu/",url,re.I):
             continue
-        ctx=clean(md[max(0,m.start()-2500):min(len(md),m.end()+2500)])
-        low=re.sub(r"<[^>]+>"," ",ctx).lower()
+        if not re.search(r"/d\\d+\\.htm",url,re.I):
+            continue
+        ctx=clean(re.sub(r"<[^>]+>"," ",decoded[max(0,m.start()-3500):min(len(decoded),m.end()+3500)]))
+        low=(label+" "+ctx).lower()
         target=next((x for x in TARGETS if x in low),None)
         if not target:
             continue
-        name_m=re.search(r"((?:[A-Z0-9][^<>]{0,180})RTX\\s*(?:5080|5070\\s*Ti)(?:[^<>]{0,180}))", re.sub(r"<[^>]+>"," ",ctx), re.I)
-        name=clean(name_m.group(1)) if name_m else clean(re.sub(r"<[^>]+>"," ",ctx))[:220]
+        name=label
+        if "rtx" not in name.lower():
+            nm=re.search(r"([^|\\n]{0,180}RTX\\s*(?:5080|5070\\s*Ti)[^|\\n]{0,180})",ctx,re.I)
+            if nm: name=clean(nm.group(1))
+        if "rtx" not in name.lower(): continue
         pm=re.findall(r"(\\d{1,3}(?:[ .]\\d{3})+|\\d{5,6})\\s*Ft",ctx,re.I)
         nums=[int(re.sub(r"\\D","",x)) for x in pm if 100000<=int(re.sub(r"\\D","",x))<=2000000]
         price=min(nums) if nums else None
+        condition=next((x.capitalize() for x in CONDITIONS if x in low),"Felbontott")
         sm=re.search(r"(?:raktáron|raktárban)[^\\d]{0,30}(\\d+)\\s*db",ctx,re.I)
         stock=int(sm.group(1)) if sm else None
-        condition=next((x.capitalize() for x in CONDITIONS if x in low),"Felbontott")
-        key=url.split("?")[0].split("#")[0]
+        key=url.split("#")[0]
         found[key]={"category":"RTX 5070 Ti" if "5070 ti" in target else "RTX 5080","condition":condition,"name":name,"price":price,"stock":stock,"url":key,"checked_at":datetime.now(timezone.utc).isoformat()}
     return list(found.values())
 
