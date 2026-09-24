@@ -1,503 +1,104 @@
-import json
-import os
-import re
-import hashlib
+import json, os, re, smtplib, ssl
 from datetime import datetime, timezone
-from urllib.parse import urljoin
-
+from email.message import EmailMessage
 import requests
-from playwright.sync_api import sync_playwright
-
 
 DATA_FILE = "site/data.json"
+CATEGORY = "https://m.alza.hu/gaming/videokartyak/vasar-hasznalt-termekek/u38842862.htm"
+TARGETS = ("rtx 5070 ti", "rtx 5080")
+CONDITIONS = ("felbontott", "bontott", "használt", "újszerű")
 
-BASE_URLS = [
-    "https://m.alza.hu/gaming/nvidia-rtx-5070-ti/vasar-hasznalt-termekek/u1000208444.htm",
-    "https://m.alza.hu/gaming/nvidia-geforce-rtx-5080/vasar-hasznalt-termekek/u1000208445.htm",
-]
-
-GPU_NAMES = (
-    "rtx 5080",
-    "rtx 5070 ti",
-)
-
-CONDITIONS = (
-    "felbontott",
-    "bontott",
-    "használt",
-    "újszerű",
-)
-
+S = requests.Session()
+S.headers.update({"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36","Accept":"text/markdown,text/plain,*/*"})
 
 def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {
-            "products": [],
-            "seen": [],
-            "initialized": False,
-            "last_check": None,
-            "error": None,
-        }
-
     try:
-        with open(DATA_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {
-            "products": [],
-            "seen": [],
-            "initialized": False,
-            "last_check": None,
-            "error": None,
-        }
+        with open(DATA_FILE, encoding="utf-8") as f: d=json.load(f)
+    except Exception: d={}
+    d.setdefault("products", []); d.setdefault("seen", []); d.setdefault("initialized", False); d.setdefault("last_check", None); d.setdefault("error", None)
+    return d
 
-
-def save_data(data):
+def save_data(d):
     os.makedirs("site", exist_ok=True)
+    with open(DATA_FILE,"w",encoding="utf-8") as f: json.dump(d,f,ensure_ascii=False,indent=2)
 
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def clean(s): return re.sub(r"\s+"," ",s or "").strip()
 
+def fetch_page(n):
+    url=CATEGORY if n==1 else f"{CATEGORY}?page={n}"
+    r=S.get("https://r.jina.ai/"+url,timeout=60); r.raise_for_status(); return r.text
 
-def make_id(url, name):
-    return hashlib.sha256(
-        (url + "|" + name).encode("utf-8")
-    ).hexdigest()[:20]
+def parse(md):
+    found={}
+    for m in re.finditer(r"\[([^\]]+)\]\((https?://[^)\s]+|/[^)\s]+)\)",md,re.I):
+        label=clean(m.group(1)); url=m.group(2)
+        if url.startswith("/"): url="https://www.alza.hu"+url
+        if "alza.hu" not in url.lower(): continue
+        ctx=clean(md[max(0,m.start()-2200):min(len(md),m.end()+3200)])
+        low=(label+" "+ctx).lower()
+        target=next((x for x in TARGETS if x in low),None)
+        condition=next((x for x in CONDITIONS if x in low),None)
+        if not target or not condition or not re.search(r"alza\.hu/.+\.htm",url,re.I): continue
+        pm=re.findall(r"(\d{1,3}(?:[ .]\d{3})+|\d{5,6})\s*Ft",ctx,re.I)
+        nums=[int(re.sub(r"\D","",p)) for p in pm if 100000<=int(re.sub(r"\D","",p))<=2000000]
+        price=min(nums) if nums else None
+        sm=re.search(r"(?:raktáron|raktárban)\s*(?::|>)?\s*(\d+)\s*db",ctx,re.I) or re.search(r"(\d+)\s*db\s*raktáron",ctx,re.I)
+        stock=int(sm.group(1)) if sm else None
+        name=label
+        if len(name)<8 or "rtx" not in name.lower():
+            nm=re.search(r"([^|\n]{0,180}RTX\s*(?:5080|5070\s*Ti)[^|\n]{0,180})",ctx,re.I)
+            if nm: name=clean(nm.group(1))
+        if "rtx" not in name.lower(): continue
+        key=url.split("#")[0]
+        found[key]={"category":"RTX 5070 Ti" if "5070 ti" in target else "RTX 5080","condition":condition.capitalize(),"name":name,"price":price,"stock":stock,"url":key,"checked_at":datetime.now(timezone.utc).isoformat()}
+    return list(found.values())
 
-
-def get_price(text):
-    matches = re.findall(
-        r"([\d .]+)\s*Ft",
-        text
-    )
-
-    prices = []
-
-    for value in matches:
-        number = int(
-            re.sub(r"\D", "", value)
-        )
-
-        if 100000 <= number <= 2000000:
-            prices.append(number)
-
-    return min(prices) if prices else None
-
-
-def get_condition(text):
-    low = text.lower()
-
-    if "felbontott" in low:
-        return "Felbontott"
-
-    if "bontott" in low:
-        return "Bontott"
-
-    if "újszerű" in low:
-        return "Újszerű"
-
-    if "használt" in low:
-        return "Használt"
-
-    return "Ismeretlen"
-
-
-def get_stock(text):
-    patterns = [
-        r"raktáron\s*(?:>|:)?\s*(\d+)\s*db",
-        r"raktárban\s*(?:>|:)?\s*(\d+)\s*db",
-        r"(\d+)\s*db",
-    ]
-
-    for pattern in patterns:
-        match = re.search(
-            pattern,
-            text,
-            re.IGNORECASE
-        )
-
-        if match:
-            try:
-                return int(match.group(1))
-            except Exception:
-                pass
-
-    return None
-
-
-def notify_github(product):
-    token = os.getenv("GITHUB_TOKEN")
-    repo = os.getenv("GITHUB_REPOSITORY")
-
-    if not token or not repo:
-        return
-
-    if product.get("price"):
-        price = (
-            f'{product["price"]:,}'
-            .replace(",", " ")
-            + " Ft"
-        )
-    else:
-        price = "Nincs ár"
-
-    body = f"""## 🟢 Új Alza videókártya
-
-**Típus:** {product["category"]}
-
-**Állapot:** {product["condition"]}
-
-**Termék:** {product["name"]}
-
-**Ár:** {price}
-
-**Készlet:** {product.get("stock") or "nincs megadva"}
-
-**Közvetlen link:** {product["url"]}
-"""
-
-    requests.post(
-        f"https://api.github.com/repos/{repo}/issues",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-        },
-        json={
-            "title": (
-                f'🟢 Új Alza {product["condition"]} '
-                f'{product["category"]}: '
-                f'{product["name"]}'
-            ),
-            "body": body,
-        },
-        timeout=20,
-    )
-
-
-def scan_page(page, url, category):
-    products = []
-
-    print(f"Vizsgálat: {url}")
-
-    page.goto(
-        url,
-        wait_until="domcontentloaded",
-        timeout=60000,
-    )
-
-    page.wait_for_timeout(5000)
-
-    # Minden terméklinket végignézünk.
-    links = page.locator("a[href]")
-
-    print(f"Talált linkek: {links.count()}")
-
-    for i in range(links.count()):
-
+def scan():
+    allp={}; errors=[]
+    for n in range(1,11):
         try:
-            link = links.nth(i)
+            items=parse(fetch_page(n)); print(f"OLDAL {n}: {len(items)} találat")
+            for p in items: allp[p["url"]]=p
+        except Exception as e: errors.append(f"oldal {n}: {type(e).__name__}: {e}")
+    products=sorted(allp.values(),key=lambda p:(p["price"] is None,p["price"] or 0))
+    print("ÖSSZES TALÁLT TERMÉK:",len(products))
+    return products,errors
 
-            href = link.get_attribute("href")
+def send_email(items):
+    password=os.getenv("GMAIL_APP_PASSWORD")
+    if not password: print("GMAIL_APP_PASSWORD nincs beállítva – email kihagyva."); return
+    user="dodesz1110@gmail.com"; msg=EmailMessage()
+    msg["Subject"]=f"ALZA GPU – {len(items)} új RTX"; msg["From"]=user; msg["To"]=user
+    lines=["Új bontott/felbontott RTX 5070 Ti / RTX 5080 az Alzán:",""]
+    for p in items:
+        price=f'{p["price"]:,}'.replace(","," ")+" Ft" if p["price"] else "Nincs ár"
+        lines += [p["name"],f'Ár: {price}',f'Állapot: {p["condition"]}',f'Készlet: {p["stock"] if p["stock"] is not None else "-"} db',p["url"],""]
+    msg.set_content("\n".join(lines))
+    with smtplib.SMTP("smtp.gmail.com",587,timeout=30) as s:
+        s.starttls(context=ssl.create_default_context()); s.login(user,password); s.send_message(msg)
+    print("EMAIL elküldve:",len(items))
 
-            if not href:
-                continue
-
-            href = urljoin(
-                "https://www.alza.hu",
-                href
-            )
-
-            # Csak valódi Alza termékoldalak.
-            if "alza.hu" not in href:
-                continue
-
-            if ".htm" not in href:
-                continue
-
-            # Link saját szövege.
-            text = " ".join(
-                link.inner_text().split()
-            )
-
-            # Ha a link saját szövege kevés,
-            # feljebb megyünk a DOM-ban.
-            node = link
-
-            for _ in range(6):
-
-                low = text.lower()
-
-                if (
-                    any(
-                        gpu in low
-                        for gpu in GPU_NAMES
-                    )
-                    and any(
-                        condition in low
-                        for condition in CONDITIONS
-                    )
-                ):
-                    break
-
-                try:
-                    node = node.locator("..")
-
-                    parent_text = " ".join(
-                        node.inner_text().split()
-                    )
-
-                    if len(parent_text) > len(text):
-                        text = parent_text
-
-                except Exception:
-                    break
-
-            low = text.lower()
-
-            # Csak RTX 5080 / RTX 5070 Ti.
-            if not any(
-                gpu in low
-                for gpu in GPU_NAMES
-            ):
-                continue
-
-            # Csak outlet állapot.
-            if not any(
-                condition in low
-                for condition in CONDITIONS
-            ):
-                continue
-
-            # A termék nevét az eredeti linkből próbáljuk.
-            name = " ".join(
-                link.inner_text().split()
-            )
-
-            # Ha az eredeti link üres vagy nem megfelelő,
-            # keressünk RTX-es sort a szülő szövegében.
-            if (
-                not name
-                or "rtx" not in name.lower()
-            ):
-                lines = [
-                    line.strip()
-                    for line in text.split("\n")
-                    if line.strip()
-                ]
-
-                for line in lines:
-
-                    line_low = line.lower()
-
-                    if (
-                        "rtx 5080" in line_low
-                        or "rtx 5070 ti" in line_low
-                    ):
-                        name = line
-                        break
-
-            if not name:
-                continue
-
-            # Túl hosszú konténerszöveg esetén
-            # próbáljuk a terméknevet levágni.
-            if len(name) > 180:
-                match = re.search(
-                    r"((?:GIGABYTE|ASUS|MSI|PALIT|GAINWARD|ZOTAC|PNY|INNO3D|KFA2|SAPPHIRE|XFX|PowerColor|AORUS)[^0-9\n]{0,140}RTX\s*(?:5080|5070\s*Ti)[^\n]*)",
-                    text,
-                    re.IGNORECASE,
-                )
-
-                if match:
-                    name = match.group(1).strip()
-
-            price = get_price(text)
-
-            condition = get_condition(text)
-
-            stock = get_stock(text)
-
-            pid = make_id(
-                href,
-                name
-            )
-
-            product = {
-                "id": pid,
-                "category": category,
-                "condition": condition,
-                "name": name,
-                "price": price,
-                "stock": stock,
-                "url": href,
-                "checked_at": datetime.now(
-                    timezone.utc
-                ).isoformat(),
-            }
-
-            # Ugyanazt a linket ne vegyük fel többször.
-            if not any(
-                p["id"] == pid
-                for p in products
-            ):
-                products.append(product)
-
-                print(
-                    f"MEGTALÁLVA: "
-                    f"{name} | "
-                    f"{condition} | "
-                    f"{price} Ft | "
-                    f"{stock} db"
-                )
-
-        except Exception:
-            continue
-
-    return products
-
-
-def scan_alza():
-    all_products = []
-
-    with sync_playwright() as p:
-
-        browser = p.chromium.launch(
-            headless=True
-        )
-
-        page = browser.new_page(
-            viewport={
-                "width": 1440,
-                "height": 1000,
-            },
-            locale="hu-HU",
-            user_agent=(
-                "Mozilla/5.0 (X11; Linux x86_64) "
-                "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
-                "Chrome/140.0.0.0 Safari/537.36"
-            ),
-        )
-
-        for base_url in BASE_URLS:
-
-            category = (
-                "RTX 5070 Ti"
-                if "5070-ti" in base_url
-                else "RTX 5080"
-            )
-
-            for page_number in range(1, 11):
-
-                if page_number == 1:
-                    url = base_url
-                else:
-                    url = (
-                        base_url
-                        + f"?page={page_number}"
-                    )
-
-                try:
-                    found = scan_page(
-                        page,
-                        url,
-                        category
-                    )
-
-                    all_products.extend(found)
-
-                except Exception as e:
-                    print(
-                        f"Hiba az oldalon: {url}"
-                    )
-                    print(e)
-
-        browser.close()
-
-    # Duplikációk kiszűrése.
-    unique = {}
-
-    for product in all_products:
-        unique[product["id"]] = product
-
-    products = list(
-        unique.values()
-    )
-
-    products.sort(
-        key=lambda x: (
-            x["price"] is None,
-            x["price"] or 0
-        )
-    )
-
-    print(
-        f"ÖSSZES TALÁLT TERMÉK: {len(products)}"
-    )
-
-    return products
-
+def notify_github(p):
+    token=os.getenv("GITHUB_TOKEN"); repo=os.getenv("GITHUB_REPOSITORY")
+    if not token or not repo: return
+    price=f'{p["price"]:,}'.replace(","," ")+" Ft" if p["price"] else "Nincs ár"
+    body=f'## 🟢 Új Alza videókártya\n\n**Típus:** {p["category"]}\n\n**Állapot:** {p["condition"]}\n\n**Termék:** {p["name"]}\n\n**Ár:** {price}\n\n**Készlet:** {p.get("stock") if p.get("stock") is not None else "-"} db\n\n**Közvetlen link:** {p["url"]}\n'
+    r=requests.post(f"https://api.github.com/repos/{repo}/issues",headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json"},json={"title":f'🟢 Új Alza {p["condition"]} {p["category"]}: {p["name"]}',"body":body},timeout=20)
+    r.raise_for_status()
 
 def main():
-
-    data = load_data()
-
-    try:
-        products = scan_alza()
-        error = None
-
-    except Exception as e:
-        products = []
-        error = str(e)
-
-    previous_seen = set(
-        data.get("seen", [])
-    )
-
-    current_ids = {
-        product["id"]
-        for product in products
-    }
-
-    # Első sikeres futás = baseline.
-    if not data.get("initialized"):
-
-        data["seen"] = sorted(
-            current_ids
-        )
-
-        data["initialized"] = True
-
+    d=load_data(); products,errors=scan(); previous=set(d.get("seen",[])); current={p["url"] for p in products}
+    if not d.get("initialized"):
+        d["seen"]=sorted(current); d["initialized"]=True; print("BASELINE: a mostani találatok kiindulópontként elmentve.")
     else:
+        new=[p for p in products if p["url"] not in previous]; print("ÚJ TERMÉKEK:",len(new))
+        if new:
+            try: send_email(new)
+            except Exception as e: print("EMAIL HIBA:",type(e).__name__,e)
+            for p in new:
+                try: notify_github(p)
+                except Exception as e: print("GITHUB ÉRTESÍTÉS HIBA:",type(e).__name__,e)
+        d["seen"]=sorted(previous|current)
+    d["products"]=products; d["last_check"]=datetime.now(timezone.utc).isoformat(); d["error"]="; ".join(errors) if errors else None; save_data(d)
 
-        new_products = [
-            product
-            for product in products
-            if product["id"]
-            not in previous_seen
-        ]
-
-        for product in new_products:
-
-            try:
-                notify_github(product)
-            except Exception:
-                pass
-
-        data["seen"] = sorted(
-            previous_seen | current_ids
-        )
-
-    data["products"] = products
-
-    data["last_check"] = datetime.now(
-        timezone.utc
-    ).isoformat()
-
-    data["error"] = error
-
-    save_data(data)
-
-
-if __name__ == "__main__":
-    main()
+if __name__=="__main__": main()
