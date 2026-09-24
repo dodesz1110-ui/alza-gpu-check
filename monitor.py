@@ -102,15 +102,15 @@ def parse(md):
     return list(found.values())
 
 def scan():
-    allp={}; errors=[]
+    allp={}; errors=[]; diagnostics=[]
     for n in range(1,11):
         try:
-            items=parse(fetch_page(n)); print(f"OLDAL {n}: {len(items)} találat")
+            raw=fetch_page(n); items=parse(raw); diagnostics.append({"page":n,"length":len(raw),"rtx5070ti":raw.lower().count("rtx 5070 ti"),"rtx5080":raw.lower().count("rtx 5080"),"links":len(re.findall(r"https?://[^\\s)<>]+\\.htm",raw,re.I))}); print(f"OLDAL {n}: {len(items)} találat, chars={len(raw)}, 5070Ti={raw.lower().count("rtx 5070 ti")}, 5080={raw.lower().count("rtx 5080")}")
             for p in items: allp[p["url"]]=p
         except Exception as e: errors.append(f"oldal {n}: {type(e).__name__}: {e}")
     products=sorted(allp.values(),key=lambda p:(p["price"] is None,p["price"] or 0))
     print("ÖSSZES TALÁLT TERMÉK:",len(products))
-    return products,errors
+    return products,errors,diagnostics
 
 def send_email(items):
     password=os.getenv("GMAIL_APP_PASSWORD")
@@ -135,7 +135,7 @@ def notify_github(p):
     r.raise_for_status()
 
 def main():
-    d=load_data(); products,errors=scan(); previous=set(d.get("seen",[])); current={p["url"] for p in products}
+    d=load_data(); products,errors,diagnostics=scan(); previous=set(d.get("seen",[])); current={p["url"] for p in products}
     if not d.get("initialized"):
         d["seen"]=sorted(current); d["initialized"]=True; print("BASELINE: a mostani találatok kiindulópontként elmentve.")
     else:
@@ -147,6 +147,6 @@ def main():
                 try: notify_github(p)
                 except Exception as e: print("GITHUB ÉRTESÍTÉS HIBA:",type(e).__name__,e)
         d["seen"]=sorted(previous|current)
-    d["products"]=products; d["last_check"]=datetime.now(timezone.utc).isoformat(); d["error"]="; ".join(errors) if errors else None; save_data(d)
+    d["products"]=products; d["diagnostics"]=diagnostics; d["last_check"]=datetime.now(timezone.utc).isoformat(); d["error"]="; ".join(errors) if errors else None; save_data(d)
 
 if __name__=="__main__": main()
