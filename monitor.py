@@ -1,4 +1,4 @@
-import json, os, re, smtplib, ssl
+import json, os, re, smtplib, ssl, html
 from datetime import datetime, timezone
 from email.message import EmailMessage
 import requests
@@ -44,8 +44,11 @@ def parse(md):
     found = {}
     # Google HTML-ból kinyerjük az Alza termékoldalakat és a körülöttük
     # megjelenő terméknevet/árat/állapotot.
-    for m in re.finditer(r"https?://(?:m\\.)?alza\\.hu/[^\\s\"<>]+", md, re.I):
-        url=m.group(0).rstrip(").,")
+    decoded = html.unescape(md).replace("\\/", "/")
+    for m in re.finditer(r"(?:https?://)?(?:www\\.|m\\.)?alza\\.hu/[^\\s\"<>]+", decoded, re.I):
+        url = m.group(0).rstrip(").,\\\\")
+        if not url.lower().startswith("http"):
+            url = "https://" + url
         if not re.search(r"/d\\d+\\.htm", url, re.I):
             continue
         ctx=clean(md[max(0,m.start()-2500):min(len(md),m.end()+2500)])
@@ -69,7 +72,7 @@ def scan():
     allp={}; errors=[]; diagnostics=[]
     for n in range(1,11):
         try:
-            raw=fetch_page(n); items=parse(raw); diagnostics.append({"page":n,"length":len(raw),"rtx5070ti":raw.lower().count("rtx 5070 ti"),"rtx5080":raw.lower().count("rtx 5080"),"links":len(re.findall(r"https?://[^\\s)<>]+\\.htm",raw,re.I))}); print(f"OLDAL {n}: {len(items)} találat, chars={len(raw)}, 5070Ti={raw.lower().count("rtx 5070 ti")}, 5080={raw.lower().count("rtx 5080")}")
+            raw=fetch_page(n); items=parse(raw); diagnostics.append({"page":n,"length":len(raw),"rtx5070ti":raw.lower().count("rtx 5070 ti"),"rtx5080":raw.lower().count("rtx 5080"),"links":len(re.findall(r"(?:https?://)?(?:www\\.|m\\.)?alza\\.hu/[^\\s)<>]+\\.htm",html.unescape(raw).replace("\\/","/"),re.I))}); print(f"OLDAL {n}: {len(items)} találat, chars={len(raw)}, 5070Ti={raw.lower().count("rtx 5070 ti")}, 5080={raw.lower().count("rtx 5080")}")
             for p in items: allp[p["url"]]=p
         except Exception as e: errors.append(f"oldal {n}: {type(e).__name__}: {e}")
     products=sorted(allp.values(),key=lambda p:(p["price"] is None,p["price"] or 0))
