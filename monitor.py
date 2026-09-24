@@ -91,6 +91,17 @@ def google_search(query):
         browser.close()
         return raw
 
+def translate_alza():
+    from urllib.parse import quote
+    try:
+        proxy="https://www-alza-hu.translate.goog/nvidia-geforce-rtx-50-series-videokartyak/18914811.htm?commodityWears=2%2C1%2C3%2C&param=340-239996419&_x_tr_sl=hu&_x_tr_tl=en&_x_tr_hl=en"
+        rr=requests.get(proxy,timeout=45,headers={"User-Agent":"Mozilla/5.0"})
+        print("GOOGLE TRANSLATE:",rr.status_code,len(rr.text),rr.url)
+        return rr.text
+    except Exception as e:
+        print("GOOGLE TRANSLATE HIBA:",type(e).__name__,e)
+        return ""
+
 def scan():
     direct, diag = direct_alza()
     if direct:
@@ -109,6 +120,15 @@ def scan():
             for p in items: allp[p["url"]]=p
         except Exception as e:
             errors.append(f"{q}: {type(e).__name__}: {e}")
+    if not allp:
+        try:
+            raw=translate_alza()
+            items=parse_alza(raw)
+            diagnostics.append({"source":"google_translate","length":len(raw),"items":len(items)})
+            for p in items: allp[p["url"]]=p
+            print("TRANSLATE:",len(items),"Alza RTX találat")
+        except Exception as e:
+            errors.append(f"google_translate: {type(e).__name__}: {e}")
     products=sorted(allp.values(),key=lambda p:(p["price"] is None,p["price"] or 0))
     print("ÖSSZES TALÁLT TERMÉK:",len(products))
     return products,errors,diagnostics
