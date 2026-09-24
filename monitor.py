@@ -25,80 +25,44 @@ def save_data(d):
 def clean(s): return re.sub(r"\s+"," ",s or "").strip()
 
 def fetch_page(n):
-    url=CATEGORY if n==1 else f"{CATEGORY}?page={n}"
-    r=S.get("https://r.jina.ai/"+url,timeout=60); r.raise_for_status(); return r.text
+    # Az Alza blokkolja a szerveroldali közvetlen lekérést. Ezért a nyilvános
+    # keresőindexből kérjük le az aktuális Alza termékoldalakat.
+    queries = [
+        'site:m.alza.hu "RTX 5070 Ti" "Felbontott" Alza',
+        'site:m.alza.hu "RTX 5080" "Felbontott" Alza',
+        'site:m.alza.hu "RTX 5070 Ti" "Újszerű" Alza',
+        'site:m.alza.hu "RTX 5080" "Újszerű" Alza',
+        'site:m.alza.hu "RTX 5070 Ti" "Használt" Alza',
+        'site:m.alza.hu "RTX 5080" "Használt" Alza'
+    ]
+    q=queries[(n-1)%len(queries)]
+    r=S.get("https://www.google.com/search",params={"q":q,"num":20,"hl":"hu"},headers={"Accept":"text/html"},timeout=60)
+    r.raise_for_status()
+    return r.text
 
 def parse(md):
     found = {}
-
-    # Jina néha nem markdown-linkként, hanem sima URL-ként adja vissza
-    # az Alza terméklinkeket, ezért mindkét formátumot felismerjük.
-    links = []
-    md_links = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+|/[^)\s]+)\)", re.I)
-    for m in md_links.finditer(md):
-        url = m.group(2)
-        if url.startswith("/"):
-            url = "https://www.alza.hu" + url
-        links.append((m.start(), m.end(), clean(m.group(1)), url))
-
-    raw_links = re.compile(r"https?://[^\s)<>]+\.htm(?:\?[^\s)<>]*)?", re.I)
-    for m in raw_links.finditer(md):
-        url = m.group(0).rstrip(".,")
-        if "alza.hu" in url.lower():
-            links.append((m.start(), m.end(), "", url))
-
-    for pos1, pos2, label, url in links:
-        if "alza.hu" not in url.lower() or not re.search(r"\.htm", url, re.I):
+    # Google HTML-ból kinyerjük az Alza termékoldalakat és a körülöttük
+    # megjelenő terméknevet/árat/állapotot.
+    for m in re.finditer(r"https?://(?:m\\.)?alza\\.hu/[^\\s\"<>]+", md, re.I):
+        url=m.group(0).rstrip(").,")
+        if not re.search(r"/d\\d+\\.htm", url, re.I):
             continue
-
-        ctx = clean(md[max(0, pos1-5000):min(len(md), pos2+5000)])
-        low = (label + " " + ctx).lower()
-        target = next((x for x in TARGETS if x in low), None)
+        ctx=clean(md[max(0,m.start()-2500):min(len(md),m.end()+2500)])
+        low=re.sub(r"<[^>]+>"," ",ctx).lower()
+        target=next((x for x in TARGETS if x in low),None)
         if not target:
             continue
-
-        # Kerüljük a kategória/szűrőoldalakat: a termékoldalak tipikusan
-        # d12345678.htm alakúak.
-        if not re.search(r"/(?:[^/]+-)?d\d+\.htm", url, re.I):
-            continue
-
-        pm = re.findall(r"(\d{1,3}(?:[ .]\d{3})+|\d{5,6})\s*Ft", ctx, re.I)
-        nums = []
-        for p in pm:
-            n = int(re.sub(r"\D", "", p))
-            if 100000 <= n <= 2000000:
-                nums.append(n)
-        price = min(nums) if nums else None
-
-        sm = re.search(r"(?:raktáron|raktárban)\s*(?:>|:)?\s*(\d+)\s*db", ctx, re.I)
-        if not sm:
-            sm = re.search(r"(\d+)\s*db\s*raktáron", ctx, re.I)
-        stock = int(sm.group(1)) if sm else None
-
-        name = label
-        if "rtx" not in name.lower():
-            nm = re.search(r"([^|\n]{0,180}RTX\s*(?:5080|5070\s*Ti)[^|\n]{0,180})", ctx, re.I)
-            if nm:
-                name = clean(nm.group(1))
-        if "rtx" not in name.lower():
-            continue
-
-        condition = "Felbontott"
-        for cond in CONDITIONS:
-            if cond in low:
-                condition = cond.capitalize()
-                break
-
-        key = url.split("#")[0]
-        found[key] = {
-            "category": "RTX 5070 Ti" if "5070 ti" in target else "RTX 5080",
-            "condition": condition,
-            "name": name,
-            "price": price,
-            "stock": stock,
-            "url": key,
-            "checked_at": datetime.now(timezone.utc).isoformat(),
-        }
+        name_m=re.search(r"((?:[A-Z0-9][^<>]{0,180})RTX\\s*(?:5080|5070\\s*Ti)(?:[^<>]{0,180}))", re.sub(r"<[^>]+>"," ",ctx), re.I)
+        name=clean(name_m.group(1)) if name_m else clean(re.sub(r"<[^>]+>"," ",ctx))[:220]
+        pm=re.findall(r"(\\d{1,3}(?:[ .]\\d{3})+|\\d{5,6})\\s*Ft",ctx,re.I)
+        nums=[int(re.sub(r"\\D","",x)) for x in pm if 100000<=int(re.sub(r"\\D","",x))<=2000000]
+        price=min(nums) if nums else None
+        sm=re.search(r"(?:raktáron|raktárban)[^\\d]{0,30}(\\d+)\\s*db",ctx,re.I)
+        stock=int(sm.group(1)) if sm else None
+        condition=next((x.capitalize() for x in CONDITIONS if x in low),"Felbontott")
+        key=url.split("?")[0].split("#")[0]
+        found[key]={"category":"RTX 5070 Ti" if "5070 ti" in target else "RTX 5080","condition":condition,"name":name,"price":price,"stock":stock,"url":key,"checked_at":datetime.now(timezone.utc).isoformat()}
     return list(found.values())
 
 def scan():
