@@ -11,10 +11,10 @@ from playwright.sync_api import sync_playwright
 
 DATA_FILE = "site/data.json"
 
-BASE_URL = (
-    "https://m.alza.hu/gaming/videokartyak/"
-    "vasar-hasznalt-termekek/u38842862.htm"
-)
+BASE_URLS = [
+    "https://m.alza.hu/gaming/nvidia-rtx-5070-ti/vasar-hasznalt-termekek/u1000208444.htm",
+    "https://m.alza.hu/gaming/nvidia-geforce-rtx-5080/vasar-hasznalt-termekek/u1000208445.htm",
+]
 
 GPU_NAMES = (
     "rtx 5080",
@@ -59,7 +59,7 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def product_id(url, name):
+def make_id(url, name):
     return hashlib.sha256(
         (url + "|" + name).encode("utf-8")
     ).hexdigest()[:20]
@@ -78,7 +78,7 @@ def get_price(text):
             re.sub(r"\D", "", value)
         )
 
-        if number >= 100000:
+        if 100000 <= number <= 2000000:
             prices.append(number)
 
     return min(prices) if prices else None
@@ -93,13 +93,36 @@ def get_condition(text):
     if "bontott" in low:
         return "Bontott"
 
-    if "használt" in low:
-        return "Használt"
-
     if "újszerű" in low:
         return "Újszerű"
 
+    if "használt" in low:
+        return "Használt"
+
     return "Ismeretlen"
+
+
+def get_stock(text):
+    patterns = [
+        r"raktáron\s*(?:>|:)?\s*(\d+)\s*db",
+        r"raktárban\s*(?:>|:)?\s*(\d+)\s*db",
+        r"(\d+)\s*db",
+    ]
+
+    for pattern in patterns:
+        match = re.search(
+            pattern,
+            text,
+            re.IGNORECASE
+        )
+
+        if match:
+            try:
+                return int(match.group(1))
+            except Exception:
+                pass
+
+    return None
 
 
 def notify_github(product):
@@ -151,8 +174,10 @@ def notify_github(product):
     )
 
 
-def scan_page(page, url):
+def scan_page(page, url, category):
     products = []
+
+    print(f"Vizsgálat: {url}")
 
     page.goto(
         url,
@@ -162,7 +187,10 @@ def scan_page(page, url):
 
     page.wait_for_timeout(5000)
 
+    # Minden terméklinket végignézünk.
     links = page.locator("a[href]")
+
+    print(f"Talált linkek: {links.count()}")
 
     for i in range(links.count()):
 
@@ -176,28 +204,28 @@ def scan_page(page, url):
 
             href = urljoin(
                 "https://www.alza.hu",
-                href,
+                href
             )
 
+            # Csak valódi Alza termékoldalak.
             if "alza.hu" not in href:
                 continue
 
-            if not href.endswith(".htm"):
+            if ".htm" not in href:
                 continue
 
-            # A terméklink saját szövege tartalmazza
-            # a nevet, árat és állapotot.
+            # Link saját szövege.
             text = " ".join(
                 link.inner_text().split()
             )
 
-            low = text.lower()
-
-            # Ha a link szövege túl rövid,
-            # nézzük meg a szülő elemeket is.
+            # Ha a link saját szövege kevés,
+            # feljebb megyünk a DOM-ban.
             node = link
 
-            for _ in range(5):
+            for _ in range(6):
+
+                low = text.lower()
 
                 if (
                     any(
@@ -220,10 +248,11 @@ def scan_page(page, url):
 
                     if len(parent_text) > len(text):
                         text = parent_text
-                        low = text.lower()
 
                 except Exception:
                     break
+
+            low = text.lower()
 
             # Csak RTX 5080 / RTX 5070 Ti.
             if not any(
@@ -232,26 +261,32 @@ def scan_page(page, url):
             ):
                 continue
 
-            # Bontott / felbontott / használt / újszerű.
+            # Csak outlet állapot.
             if not any(
                 condition in low
                 for condition in CONDITIONS
             ):
                 continue
 
-            # Terméknév.
+            # A termék nevét az eredeti linkből próbáljuk.
             name = " ".join(
                 link.inner_text().split()
             )
 
-            if not name:
+            # Ha az eredeti link üres vagy nem megfelelő,
+            # keressünk RTX-es sort a szülő szövegében.
+            if (
+                not name
+                or "rtx" not in name.lower()
+            ):
                 lines = [
-                    x.strip()
-                    for x in text.split("\n")
-                    if x.strip()
+                    line.strip()
+                    for line in text.split("\n")
+                    if line.strip()
                 ]
 
                 for line in lines:
+
                     line_low = line.lower()
 
                     if (
@@ -264,36 +299,30 @@ def scan_page(page, url):
             if not name:
                 continue
 
-            category = (
-                "RTX 5080"
-                if "rtx 5080" in low
-                else "RTX 5070 Ti"
-            )
+            # Túl hosszú konténerszöveg esetén
+            # próbáljuk a terméknevet levágni.
+            if len(name) > 180:
+                match = re.search(
+                    r"((?:GIGABYTE|ASUS|MSI|PALIT|GAINWARD|ZOTAC|PNY|INNO3D|KFA2|SAPPHIRE|XFX|PowerColor|AORUS)[^0-9\n]{0,140}RTX\s*(?:5080|5070\s*Ti)[^\n]*)",
+                    text,
+                    re.IGNORECASE,
+                )
+
+                if match:
+                    name = match.group(1).strip()
 
             price = get_price(text)
 
-            stock = None
-
-            stock_match = re.search(
-                r"(?:raktáron|raktárban)"
-                r"\s*(?:>|:)?\s*(\d+)\s*db",
-                text,
-                re.IGNORECASE,
-            )
-
-            if stock_match:
-                stock = int(
-                    stock_match.group(1)
-                )
-
             condition = get_condition(text)
 
-            pid = product_id(
+            stock = get_stock(text)
+
+            pid = make_id(
                 href,
-                name,
+                name
             )
 
-            products.append({
+            product = {
                 "id": pid,
                 "category": category,
                 "condition": condition,
@@ -304,7 +333,22 @@ def scan_page(page, url):
                 "checked_at": datetime.now(
                     timezone.utc
                 ).isoformat(),
-            })
+            }
+
+            # Ugyanazt a linket ne vegyük fel többször.
+            if not any(
+                p["id"] == pid
+                for p in products
+            ):
+                products.append(product)
+
+                print(
+                    f"MEGTALÁLVA: "
+                    f"{name} | "
+                    f"{condition} | "
+                    f"{price} Ft | "
+                    f"{stock} db"
+                )
 
         except Exception:
             continue
@@ -313,7 +357,7 @@ def scan_page(page, url):
 
 
 def scan_alza():
-    products = []
+    all_products = []
 
     with sync_playwright() as p:
 
@@ -335,37 +379,45 @@ def scan_alza():
             ),
         )
 
-        # Az Alza több oldalra bontja az outlet kínálatot.
-        # 1-10. oldalt végignézzük.
-        for page_number in range(1, 11):
+        for base_url in BASE_URLS:
 
-            if page_number == 1:
-                url = BASE_URL
-            else:
-                url = (
-                    BASE_URL
-                    + f"?page={page_number}"
-                )
+            category = (
+                "RTX 5070 Ti"
+                if "5070-ti" in base_url
+                else "RTX 5080"
+            )
 
-            try:
-                page_products = scan_page(
-                    page,
-                    url,
-                )
+            for page_number in range(1, 11):
 
-                products.extend(
-                    page_products
-                )
+                if page_number == 1:
+                    url = base_url
+                else:
+                    url = (
+                        base_url
+                        + f"?page={page_number}"
+                    )
 
-            except Exception:
-                continue
+                try:
+                    found = scan_page(
+                        page,
+                        url,
+                        category
+                    )
+
+                    all_products.extend(found)
+
+                except Exception as e:
+                    print(
+                        f"Hiba az oldalon: {url}"
+                    )
+                    print(e)
 
         browser.close()
 
     # Duplikációk kiszűrése.
     unique = {}
 
-    for product in products:
+    for product in all_products:
         unique[product["id"]] = product
 
     products = list(
@@ -375,8 +427,12 @@ def scan_alza():
     products.sort(
         key=lambda x: (
             x["price"] is None,
-            x["price"] or 0,
+            x["price"] or 0
         )
+    )
+
+    print(
+        f"ÖSSZES TALÁLT TERMÉK: {len(products)}"
     )
 
     return products
@@ -403,7 +459,7 @@ def main():
         for product in products
     }
 
-    # Első futás: baseline.
+    # Első sikeres futás = baseline.
     if not data.get("initialized"):
 
         data["seen"] = sorted(
