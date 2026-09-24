@@ -29,28 +29,77 @@ def fetch_page(n):
     r=S.get("https://r.jina.ai/"+url,timeout=60); r.raise_for_status(); return r.text
 
 def parse(md):
-    found={}
-    for m in re.finditer(r"\[([^\]]+)\]\((https?://[^)\s]+|/[^)\s]+)\)",md,re.I):
-        label=clean(m.group(1)); url=m.group(2)
-        if url.startswith("/"): url="https://www.alza.hu"+url
-        if "alza.hu" not in url.lower(): continue
-        ctx=clean(md[max(0,m.start()-2200):min(len(md),m.end()+3200)])
-        low=(label+" "+ctx).lower()
-        target=next((x for x in TARGETS if x in low),None)
-        condition=next((x for x in CONDITIONS if x in low),None)
-        if not target or not condition or not re.search(r"alza\.hu/.+\.htm",url,re.I): continue
-        pm=re.findall(r"(\d{1,3}(?:[ .]\d{3})+|\d{5,6})\s*Ft",ctx,re.I)
-        nums=[int(re.sub(r"\D","",p)) for p in pm if 100000<=int(re.sub(r"\D","",p))<=2000000]
-        price=min(nums) if nums else None
-        sm=re.search(r"(?:raktáron|raktárban)\s*(?::|>)?\s*(\d+)\s*db",ctx,re.I) or re.search(r"(\d+)\s*db\s*raktáron",ctx,re.I)
-        stock=int(sm.group(1)) if sm else None
-        name=label
-        if len(name)<8 or "rtx" not in name.lower():
-            nm=re.search(r"([^|\n]{0,180}RTX\s*(?:5080|5070\s*Ti)[^|\n]{0,180})",ctx,re.I)
-            if nm: name=clean(nm.group(1))
-        if "rtx" not in name.lower(): continue
-        key=url.split("#")[0]
-        found[key]={"category":"RTX 5070 Ti" if "5070 ti" in target else "RTX 5080","condition":condition.capitalize(),"name":name,"price":price,"stock":stock,"url":key,"checked_at":datetime.now(timezone.utc).isoformat()}
+    found = {}
+    # A Jina által visszaadott Alza-oldalon a termékek markdown linkekként
+    # jelennek meg. Az outlet kategória miatt nem kell külön feltételként
+    # a "Felbontott" szöveget ugyanabban a link-környezetben megtalálni.
+    link_re = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+|/[^)\s]+)\)", re.I)
+    for m in link_re.finditer(md):
+        label = clean(m.group(1))
+        url = m.group(2)
+        if url.startswith("/"):
+            url = "https://www.alza.hu" + url
+        if "alza.hu" not in url.lower():
+            continue
+
+        # A terméknév gyakran közvetlenül a linkben van.
+        target = next((x for x in TARGETS if x in label.lower()), None)
+
+        # Ha a link szövege nem tartalmazza, nézzük meg a közeli markdown-részt.
+        ctx = clean(md[max(0, m.start()-3500):min(len(md), m.end()+3500)])
+        low = (label + " " + ctx).lower()
+        if not target:
+            target = next((x for x in TARGETS if x in low), None)
+        if not target:
+            continue
+
+        # Ne vegyünk fel navigációs/keresési linkeket; valódi termékoldal
+        # esetén jellemzően d12345678.htm szerepel az URL-ben.
+        if not re.search(r"\.htm", url, re.I):
+            continue
+
+        pm = re.findall(r"(\d{1,3}(?:[ .]\d{3})+|\d{5,6})\s*Ft", ctx, re.I)
+        nums = []
+        for p in pm:
+            try:
+                n = int(re.sub(r"\D", "", p))
+                if 100000 <= n <= 2000000:
+                    nums.append(n)
+            except Exception:
+                pass
+        price = min(nums) if nums else None
+
+        sm = re.search(r"(?:raktáron|raktárban)\s*(?:>|:)?\s*(\d+)\s*db", ctx, re.I)
+        if not sm:
+            sm = re.search(r"(\d+)\s*db\s*raktáron", ctx, re.I)
+        stock = int(sm.group(1)) if sm else None
+
+        name = label
+        if "rtx" not in name.lower() or len(name) < 8:
+            nm = re.search(r"([^|\n]{0,180}RTX\s*(?:5080|5070\s*Ti)[^|\n]{0,180})", ctx, re.I)
+            if nm:
+                name = clean(nm.group(1))
+
+        # Ha a környezetből túl hosszú név jön, a link címkéje az elsődleges.
+        if "rtx" not in name.lower():
+            continue
+
+        condition = "Felbontott"
+        for cond in CONDITIONS:
+            if cond in low:
+                condition = cond.capitalize()
+                break
+
+        key = url.split("#")[0]
+        found[key] = {
+            "category": "RTX 5070 Ti" if "5070 ti" in target else "RTX 5080",
+            "condition": condition,
+            "name": name,
+            "price": price,
+            "stock": stock,
+            "url": key,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
     return list(found.values())
 
 def scan():
