@@ -1,7 +1,7 @@
 {
   "products": [],
   "seen": [],
-  "initialized": false,
-  "last_check": null,
-  "error": null
+  "initialized": true,
+  "last_check": "2026-09-24T12:17:51.908058+00:00",
+  "error": "RTX 5080: 403 Client Error: Forbidden for url: https://m.alza.hu/gaming/nvidia-geforce-rtx-5080/vasar-hasznalt-termekek/u1000208445.htm | RTX 5070 Ti: 403 Client Error: Forbidden for url: https://m.alza.hu/gaming/nvidia-rtx-5070-ti/vasar-hasznalt-termekek/u1000208444.htm"
 }
