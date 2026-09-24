@@ -42,7 +42,7 @@ def parse(md):
     found={}
     decoded=html.unescape(md)
     # Bing találati HTML-ben a valódi cél URL-ek az <a href=...> elemekben vannak.
-    for m in re.finditer(r'<a[^>]+href=["\\']([^"\\']+)["\\'][^>]*>(.*?)</a>',decoded,re.I|re.S):
+    for m in re.finditer(r"<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",decoded,re.I|re.S):
         url=html.unescape(m.group(1)).replace("&amp;","&")
         label=clean(re.sub(r"<[^>]+>"," ",m.group(2)))
         if not re.match(r"https?://(?:www\\.|m\\.)?alza\\.hu/",url,re.I):
