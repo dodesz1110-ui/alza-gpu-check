@@ -2,75 +2,75 @@
   "products": [],
   "seen": [],
   "initialized": true,
-  "last_check": "2026-09-24T17:47:09.295388+00:00",
+  "last_check": "2026-09-24T17:49:52.169323+00:00",
   "error": null,
   "diagnostics": [
     {
       "page": 1,
-      "length": 91628,
+      "length": 91496,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
     },
     {
       "page": 2,
-      "length": 91635,
+      "length": 91233,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
     },
     {
       "page": 3,
-      "length": 91656,
+      "length": 91371,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
     },
     {
       "page": 4,
-      "length": 91694,
+      "length": 91517,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
     },
     {
       "page": 5,
-      "length": 91756,
+      "length": 91347,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
     },
     {
       "page": 6,
-      "length": 91666,
+      "length": 91567,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
     },
     {
       "page": 7,
-      "length": 91617,
+      "length": 91233,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
     },
     {
       "page": 8,
-      "length": 91803,
+      "length": 91317,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
     },
     {
       "page": 9,
-      "length": 91732,
+      "length": 91144,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
     },
     {
       "page": 10,
-      "length": 91650,
+      "length": 91409,
       "rtx5070ti": 0,
       "rtx5080": 0,
       "links": 0
