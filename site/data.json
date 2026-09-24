@@ -2,7 +2,7 @@
   "products": [],
   "seen": [],
   "initialized": true,
-  "last_check": "2026-09-24T19:11:45.806436+00:00",
+  "last_check": "2026-09-24T19:25:17.815493+00:00",
   "error": "site:alza.hu \"RTX 5070 Ti\" (\"Felbontott\" OR \"Bontott\" OR \"Használt\" OR \"Újszerű\"): AttributeError: 'list' object has no attribute 'replace'; site:alza.hu \"RTX 5080\" (\"Felbontott\" OR \"Bontott\" OR \"Használt\" OR \"Újszerű\"): AttributeError: 'list' object has no attribute 'replace'",
   "diagnostics": [
     {
