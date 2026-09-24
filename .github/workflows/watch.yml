@@ -2,6 +2,12 @@ name: Alza GPU Watch
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - monitor.py
+      - .github/workflows/watch.yml
   schedule:
     - cron: "3/5 * * * *"
 
