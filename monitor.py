@@ -26,18 +26,15 @@ def save_data(d):
 def clean(s): return re.sub(r"\s+"," ",s or "").strip()
 
 def fetch_page(n):
-    queries = [
-        'site:alza.hu "RTX 5070 Ti" "Felbontott"',
-        'site:alza.hu "RTX 5080" "Felbontott"',
-        'site:alza.hu "RTX 5070 Ti" "Újszerű"',
-        'site:alza.hu "RTX 5080" "Újszerű"',
-        'site:alza.hu "RTX 5070 Ti" "Használt"',
-        'site:alza.hu "RTX 5080" "Használt"'
+    urls = [
+        "https://m.alza.hu/gaming/nvidia-rtx-5070-ti/vasar-hasznalt-termekek/u1000208444.htm",
+        "https://m.alza.hu/gaming/nvidia-geforce-rtx-5080/vasar-hasznalt-termekek/u1000208445.htm"
     ]
-    q=queries[(n-1)%len(queries)]
-    r=S.get("https://www.bing.com/search",params={"q":q,"count":50,"setlang":"hu-HU","cc":"HU"},headers={"Accept":"text/html","User-Agent":"Mozilla/5.0"},timeout=60)
+    url = urls[(n-1) % len(urls)]
+    r = S.get(url, headers={"Accept":"text/html","User-Agent":"Mozilla/5.0"}, timeout=60, allow_redirects=True)
     r.raise_for_status()
     return r.text
+
 
 def parse(md):
     found={}
