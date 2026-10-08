@@ -2,31 +2,31 @@
   "products": [],
   "seen": [],
   "initialized": true,
-  "last_check": "2026-10-08T14:31:16.952677+00:00",
+  "last_check": "2026-10-08T14:52:07.809256+00:00",
   "error": null,
   "diagnostics": [
     {
       "source": "direct",
-      "length": 62495,
+      "length": 62496,
       "title": "Just a moment..."
     },
     {
       "source": "google",
       "query": "site:alza.hu \"RTX 5070 Ti\" (\"Felbontott\" OR \"Bontott\" OR \"Használt\" OR \"Újszerű\")",
-      "length": 7171,
+      "length": 7172,
       "items": 0,
       "alza_links": 0
     },
     {
       "source": "google",
       "query": "site:alza.hu \"RTX 5080\" (\"Felbontott\" OR \"Bontott\" OR \"Használt\" OR \"Újszerű\")",
-      "length": 7164,
+      "length": 7182,
       "items": 0,
       "alza_links": 0
     },
     {
       "source": "google_translate",
-      "length": 71080,
+      "length": 71103,
       "items": 0
     }
   ]
