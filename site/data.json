@@ -2,7 +2,7 @@
   "products": [],
   "seen": [],
   "initialized": true,
-  "last_check": "2026-10-17T16:52:50.128757+00:00",
+  "last_check": "2026-10-17T17:11:06.898749+00:00",
   "error": null,
   "diagnostics": [
     {
@@ -20,13 +20,13 @@
     {
       "source": "google",
       "query": "site:alza.hu \"RTX 5080\" (\"Felbontott\" OR \"Bontott\" OR \"Használt\" OR \"Újszerű\")",
-      "length": 7162,
+      "length": 7164,
       "items": 0,
       "alza_links": 0
     },
     {
       "source": "google_translate",
-      "length": 71057,
+      "length": 71056,
       "items": 0
     }
   ]
