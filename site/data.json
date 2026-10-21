@@ -2,18 +2,18 @@
   "products": [],
   "seen": [],
   "initialized": true,
-  "last_check": "2026-10-21T05:28:11.772256+00:00",
+  "last_check": "2026-10-21T06:00:13.118768+00:00",
   "error": null,
   "diagnostics": [
     {
       "source": "direct",
-      "length": 62486,
+      "length": 62484,
       "title": "Just a moment..."
     },
     {
       "source": "google",
       "query": "site:alza.hu \"RTX 5070 Ti\" (\"Felbontott\" OR \"Bontott\" OR \"Használt\" OR \"Újszerű\")",
-      "length": 7170,
+      "length": 7169,
       "items": 0,
       "alza_links": 0
     },
