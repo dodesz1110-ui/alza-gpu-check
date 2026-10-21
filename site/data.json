@@ -2,7 +2,7 @@
   "products": [],
   "seen": [],
   "initialized": true,
-  "last_check": "2026-10-21T08:04:33.539356+00:00",
+  "last_check": "2026-10-21T08:39:26.346082+00:00",
   "error": null,
   "diagnostics": [
     {
@@ -26,7 +26,7 @@
     },
     {
       "source": "google_translate",
-      "length": 71053,
+      "length": 71052,
       "items": 0
     }
   ]
