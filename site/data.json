@@ -2,12 +2,12 @@
   "products": [],
   "seen": [],
   "initialized": true,
-  "last_check": "2026-10-22T07:23:47.863245+00:00",
+  "last_check": "2026-10-22T08:05:39.116351+00:00",
   "error": null,
   "diagnostics": [
     {
       "source": "direct",
-      "length": 62484,
+      "length": 62486,
       "title": "Just a moment..."
     },
     {
